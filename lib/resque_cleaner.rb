@@ -85,8 +85,9 @@ module Resque
 
       # Returns every jobs for which block evaluates to true.
       def select(&block)
-        jobs = @limiter.jobs
-        block_given? ? @limiter.jobs.select(&block) : jobs
+        jobs = @limiter.jobs.map { |job| transform_active_job(job) }
+        jobs = jobs.select(&block) if block_given?
+        jobs
       end
       alias :failure_jobs :select
 
@@ -101,7 +102,7 @@ module Resque
         cleared = 0
         @limiter.lock do
           @limiter.jobs.each_with_index do |job,i|
-            if !block_given? || block.call(job)
+            if !block_given? || block.call(transform_active_job(job))
               index = @limiter.start_index + i - cleared
               # fetches again since you can't ensure that it is always true:
               # a == endode(decode(a))
@@ -120,7 +121,7 @@ module Resque
         queue = options["queue"] || options[:queue]
         @limiter.lock do
           @limiter.jobs.each_with_index do |job,i|
-            if !block_given? || block.call(job)
+            if !block_given? || block.call(transform_active_job(job))
               index = @limiter.start_index + i - requeued
 
               value = redis.lindex(:failed, index)
@@ -151,6 +152,19 @@ module Resque
         c = @limiter.maximum
         redis.ltrim(:failed, -c, -1)
         c
+      end
+
+      private
+
+      def transform_active_job(job)
+        return job unless job['payload']['class'] == 'ActiveJob::QueueAdapters::ResqueAdapter::JobWrapper'
+        active_job = job['payload']['args'].first
+
+        result = job.clone
+        result['payload'] = job['payload'].clone
+        result['payload']['class'] = "#{active_job['job_class']} (via ActiveJob)"
+        result['payload']['args'] = active_job['arguments']
+        result
       end
 
       # Exntends job(Hash instance) with some helper methods.
@@ -304,4 +318,3 @@ module Resque
 end
 
 require 'resque_cleaner/server'
-
