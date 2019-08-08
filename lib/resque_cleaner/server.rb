@@ -98,7 +98,7 @@ module ResqueCleaner
           end
 
           def show_job_args(args)
-            Array(args).map { |a| a.inspect }.join("\n")
+            Array(args).map { |a| a.inspect }.join("\n").truncate(10_000)
           end
 
           def text_filter(id, name, value)
